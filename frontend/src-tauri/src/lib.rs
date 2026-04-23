@@ -720,6 +720,10 @@ pub fn run() {
             // Markdown export commands
             markdown_export::pick_markdown_output_dir,
             markdown_export::write_meeting_markdown,
+            markdown_export::move_meeting_markdown,
+            // Project tag commands
+            api::api_update_meeting_tag,
+            api::api_get_all_tags,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -17,6 +17,7 @@ interface SidebarItem {
 export interface CurrentMeeting {
   id: string;
   title: string;
+  project_tag?: string;
 }
 
 // Search result type for transcript search
@@ -86,10 +87,11 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const fetchMeetings = React.useCallback(async () => {
     if (serverAddress) {
       try {
-        const meetings = await invoke('api_get_meetings') as Array<{ id: string, title: string }>;
+        const meetings = await invoke('api_get_meetings') as Array<{ id: string, title: string, project_tag?: string }>;
         const transformedMeetings = meetings.map((meeting: any) => ({
           id: meeting.id,
-          title: meeting.title
+          title: meeting.title,
+          project_tag: meeting.project_tag ?? undefined,
         }));
         setMeetings(transformedMeetings);
         Analytics.trackBackendConnection(true);
@@ -113,14 +115,32 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     fetchSettings();
   }, []);
 
+  // Group meetings: untagged first (direct children), then tagged in sub-folders
+  const untaggedMeetings = meetings.filter(m => !m.project_tag);
+  const taggedGroups = new Map<string, CurrentMeeting[]>();
+  meetings.filter(m => m.project_tag).forEach(m => {
+    const tag = m.project_tag!;
+    if (!taggedGroups.has(tag)) taggedGroups.set(tag, []);
+    taggedGroups.get(tag)!.push(m);
+  });
+  const tagFolders: SidebarItem[] = Array.from(taggedGroups.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([tag, tagMeetings]) => ({
+      id: `project-tag-${tag}`,
+      title: tag,
+      type: 'folder' as const,
+      children: tagMeetings.map(m => ({ id: m.id, title: m.title, type: 'file' as const })),
+    }));
+
   const baseItems: SidebarItem[] = [
     {
       id: 'meetings',
       title: 'Meeting Notes',
       type: 'folder' as const,
       children: [
-        ...meetings.map(meeting => ({ id: meeting.id, title: meeting.title, type: 'file' as const }))
-      ]
+        ...untaggedMeetings.map(m => ({ id: m.id, title: m.title, type: 'file' as const })),
+        ...tagFolders,
+      ],
     },
   ];
 

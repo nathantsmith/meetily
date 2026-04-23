@@ -23,3 +23,17 @@ pub fn write_meeting_markdown(path: String, content: String) -> Result<(), Strin
     fs::write(&file_path, content.as_bytes())
         .map_err(|e| format!("Failed to write file: {}", e))
 }
+
+#[tauri::command]
+pub fn move_meeting_markdown(old_path: String, new_path: String) -> Result<(), String> {
+    let src = PathBuf::from(&old_path);
+    if !src.exists() {
+        return Ok(()); // Nothing to move
+    }
+    let dst = PathBuf::from(&new_path);
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+    fs::rename(&src, &dst).map_err(|e| format!("Failed to move file: {}", e))
+}

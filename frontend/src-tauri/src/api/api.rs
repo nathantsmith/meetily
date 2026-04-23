@@ -30,6 +30,7 @@ pub struct ApiResponse<T> {
 pub struct Meeting {
     pub id: String,
     pub title: String,
+    pub project_tag: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -148,6 +149,8 @@ pub struct MeetingMetadata {
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_tag: Option<String>,
 }
 
 /// Paginated transcripts response with total count
@@ -341,6 +344,7 @@ pub async fn api_get_meetings<R: Runtime>(
                 .map(|m| Meeting {
                     id: m.id,
                     title: m.title,
+                    project_tag: m.project_tag,
                 })
                 .collect();
             Ok(result)
@@ -828,6 +832,7 @@ pub async fn api_get_meeting_metadata<R: Runtime>(
                 created_at: meeting.created_at.0.to_rfc3339(),
                 updated_at: meeting.updated_at.0.to_rfc3339(),
                 folder_path: meeting.folder_path,
+                project_tag: meeting.project_tag,
             })
         }
         Ok(None) => {
@@ -924,6 +929,37 @@ pub async fn api_save_meeting_title<R: Runtime>(
             Err(format!("Failed to update meeting: {}", e))
         }
     }
+}
+
+#[tauri::command]
+pub async fn api_update_meeting_tag<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    project_tag: Option<String>,
+) -> Result<serde_json::Value, String> {
+    log_info!(
+        "api_update_meeting_tag called for meeting_id: {}, tag: {:?}",
+        meeting_id,
+        project_tag
+    );
+    let pool = state.db_manager.pool();
+    match MeetingsRepository::update_meeting_tag(pool, &meeting_id, project_tag.as_deref()).await {
+        Ok(true) => Ok(serde_json::json!({"message": "Project tag updated successfully"})),
+        Ok(false) => Err(format!("No meeting found with id {}", meeting_id)),
+        Err(e) => Err(format!("Failed to update project tag: {}", e)),
+    }
+}
+
+#[tauri::command]
+pub async fn api_get_all_tags<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let pool = state.db_manager.pool();
+    MeetingsRepository::get_all_tags(pool)
+        .await
+        .map_err(|e| format!("Failed to get tags: {}", e))
 }
 
 #[tauri::command]

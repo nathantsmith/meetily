@@ -123,7 +123,7 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
               ? (summary as any).markdown
               : '';
           const manualNotes = getMeetingNotes(meeting.id);
-          const filePath = getMeetingMarkdownPath(markdownDir, meetingTitle, meeting.created_at);
+          const filePath = getMeetingMarkdownPath(markdownDir, meetingTitle, meeting.created_at, meeting.project_tag);
           const fileContent = buildMarkdownContent(
             meetingTitle,
             meeting.created_at,

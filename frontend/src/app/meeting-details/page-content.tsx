@@ -6,7 +6,7 @@ import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
-import { getMeetingNotes, saveMeetingNotes } from '@/lib/markdownExport';
+import { getMeetingNotes, saveMeetingNotes, getMarkdownOutputDir, getMeetingMarkdownPath, moveMeetingMarkdown } from '@/lib/markdownExport';
 import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
 import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
 import { ModelConfig } from '@/components/ModelSettingsModal';
@@ -67,17 +67,48 @@ export default function PageContent({
     saveMeetingNotes(meeting.id, notes);
   }, [meeting.id]);
 
+  const [projectTag, setProjectTag] = useState<string | null>(meeting.project_tag ?? null);
+  const [allTags, setAllTags] = useState<string[]>([]);
+
+  useEffect(() => {
+    invoke<string[]>('api_get_all_tags').then(setAllTags).catch(console.error);
+  }, []);
+
   // Ref to store the modal open function from SummaryGeneratorButtonGroup
   const openModelSettingsRef = useRef<(() => void) | null>(null);
 
   // Sidebar context
-  const { serverAddress } = useSidebar();
+  const { serverAddress, setMeetings, meetings: sidebarMeetings } = useSidebar();
 
   // Get model config from ConfigContext
   const { modelConfig, setModelConfig } = useConfig();
 
   // Custom hooks
   const meetingData = useMeetingData({ meeting, summaryData, onMeetingUpdated });
+
+  const handleTagChange = useCallback(async (newTag: string | null) => {
+    const oldTag = projectTag;
+    try {
+      await invoke('api_update_meeting_tag', { meetingId: meeting.id, projectTag: newTag });
+      const markdownDir = getMarkdownOutputDir();
+      if (markdownDir) {
+        const oldPath = getMeetingMarkdownPath(markdownDir, meetingData.meetingTitle, meeting.created_at, oldTag);
+        const newPath = getMeetingMarkdownPath(markdownDir, meetingData.meetingTitle, meeting.created_at, newTag);
+        await moveMeetingMarkdown(oldPath, newPath);
+      }
+      setProjectTag(newTag);
+      setMeetings(sidebarMeetings.map(m =>
+        m.id === meeting.id ? { ...m, project_tag: newTag ?? undefined } : m
+      ));
+      if (newTag && !allTags.includes(newTag)) {
+        setAllTags(prev => [...prev, newTag].sort());
+      }
+      toast.success('Project updated');
+    } catch (error) {
+      console.error('Failed to update project tag:', error);
+      toast.error('Failed to update project tag');
+    }
+  }, [meeting.id, meeting.created_at, projectTag, meetingData.meetingTitle, allTags, sidebarMeetings, setMeetings]);
   const templates = useTemplates();
 
   // Callback to register the modal open function
@@ -217,6 +248,9 @@ export default function PageContent({
           aiSummary={meetingData.aiSummary}
           meetingNotes={meetingNotes}
           onNotesChange={handleNotesChange}
+          projectTag={projectTag}
+          allTags={allTags}
+          onTagChange={handleTagChange}
           summaryStatus={summaryGeneration.summaryStatus}
           transcripts={meetingData.transcripts}
           modelConfig={modelConfig}

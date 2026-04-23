@@ -9,6 +9,7 @@ import { SummaryGeneratorButtonGroup } from './SummaryGeneratorButtonGroup';
 import { SummaryUpdaterButtonGroup } from './SummaryUpdaterButtonGroup';
 import Analytics from '@/lib/analytics';
 import { RefObject } from 'react';
+import { ProjectTagSelector } from './ProjectTagSelector';
 
 interface SummaryPanelProps {
   meeting: {
@@ -30,6 +31,9 @@ interface SummaryPanelProps {
   aiSummary: Summary | null;
   meetingNotes?: string;
   onNotesChange?: (notes: string) => void;
+  projectTag?: string | null;
+  allTags?: string[];
+  onTagChange?: (tag: string | null) => Promise<void>;
   summaryStatus: 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
   transcripts: Transcript[];
   modelConfig: ModelConfig;
@@ -68,6 +72,9 @@ export function SummaryPanel({
   aiSummary,
   meetingNotes = '',
   onNotesChange = () => {},
+  projectTag = null,
+  allTags = [],
+  onTagChange,
   summaryStatus,
   transcripts,
   modelConfig,
@@ -95,13 +102,16 @@ export function SummaryPanel({
     <div className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden">
       {/* Title area */}
       <div className="p-4 border-b border-gray-200">
-        {/* <EditableTitle
-          title={meetingTitle}
-          isEditing={isEditingTitle}
-          onStartEditing={onStartEditTitle}
-          onFinishEditing={onFinishEditTitle}
-          onChange={onTitleChange}
-        /> */}
+        {/* Project tag selector */}
+        {onTagChange && (
+          <div className="mb-3">
+            <ProjectTagSelector
+              currentTag={projectTag}
+              allTags={allTags}
+              onTagChange={onTagChange}
+            />
+          </div>
+        )}
 
         {/* Button groups - only show when summary exists */}
         {aiSummary && !isSummaryLoading && (

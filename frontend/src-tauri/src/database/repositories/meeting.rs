@@ -62,7 +62,9 @@ impl MeetingsRepository {
 
         // Get meeting details
         let meeting: Option<MeetingModel> =
-            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
+            sqlx::query_as(
+                "SELECT id, title, created_at, updated_at, folder_path, project_tag FROM meetings WHERE id = ?"
+            )
                 .bind(meeting_id)
                 .fetch_optional(&mut *transaction)
                 .await?;
@@ -120,12 +122,48 @@ impl MeetingsRepository {
         }
 
         let meeting: Option<MeetingModel> =
-            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
+            sqlx::query_as(
+                "SELECT id, title, created_at, updated_at, folder_path, project_tag FROM meetings WHERE id = ?"
+            )
                 .bind(meeting_id)
                 .fetch_optional(pool)
                 .await?;
 
         Ok(meeting)
+    }
+
+    pub async fn update_meeting_tag(
+        pool: &SqlitePool,
+        meeting_id: &str,
+        project_tag: Option<&str>,
+    ) -> Result<bool, SqlxError> {
+        if meeting_id.trim().is_empty() {
+            return Err(SqlxError::Protocol(
+                "meeting_id cannot be empty".to_string(),
+            ));
+        }
+
+        let now = Utc::now().naive_utc();
+        let rows = sqlx::query(
+            "UPDATE meetings SET project_tag = ?, updated_at = ? WHERE id = ?"
+        )
+        .bind(project_tag)
+        .bind(now)
+        .bind(meeting_id)
+        .execute(pool)
+        .await?;
+
+        Ok(rows.rows_affected() > 0)
+    }
+
+    pub async fn get_all_tags(pool: &SqlitePool) -> Result<Vec<String>, SqlxError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT DISTINCT project_tag FROM meetings WHERE project_tag IS NOT NULL AND project_tag != '' ORDER BY project_tag ASC"
+        )
+        .fetch_all(pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|(tag,)| tag).collect())
     }
 
     /// Get meeting transcripts with pagination support

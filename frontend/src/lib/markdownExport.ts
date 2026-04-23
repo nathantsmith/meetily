@@ -40,13 +40,24 @@ function sanitizeFilename(name: string): string {
     .slice(0, 80) || 'meeting';
 }
 
-export function getMeetingMarkdownPath(dir: string, title: string, createdAt: string): string {
+export function getMeetingMarkdownPath(
+  dir: string,
+  title: string,
+  createdAt: string,
+  projectTag?: string | null,
+): string {
   const date = createdAt
     ? new Date(createdAt).toISOString().split('T')[0]
     : new Date().toISOString().split('T')[0];
   const safeName = sanitizeFilename(title);
   const normalizedDir = dir.replace(/[/\\]+$/, '');
-  return `${normalizedDir}/${safeName}-${date}.md`;
+  const subDir = projectTag ? sanitizeFilename(projectTag) : 'General';
+  return `${normalizedDir}/${subDir}/${safeName}-${date}.md`;
+}
+
+export async function moveMeetingMarkdown(oldPath: string, newPath: string): Promise<void> {
+  if (oldPath === newPath) return;
+  return invoke('move_meeting_markdown', { oldPath, newPath });
 }
 
 export function buildMarkdownContent(
