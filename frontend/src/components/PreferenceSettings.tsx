@@ -7,6 +7,11 @@ import { invoke } from "@tauri-apps/api/core"
 import Analytics from "@/lib/analytics"
 import AnalyticsConsentSwitch from "./AnalyticsConsentSwitch"
 import { useConfig, NotificationSettings } from "@/contexts/ConfigContext"
+import {
+  getMarkdownOutputDir,
+  setMarkdownOutputDir,
+  pickMarkdownOutputDir,
+} from "@/lib/markdownExport"
 
 export function PreferenceSettings() {
   const {
@@ -20,7 +25,14 @@ export function PreferenceSettings() {
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean | null>(null);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [previousNotificationsEnabled, setPreviousNotificationsEnabled] = useState<boolean | null>(null);
+  const [markdownDir, setMarkdownDir] = useState<string | null>(null);
+  const [isPickingDir, setIsPickingDir] = useState(false);
   const hasTrackedViewRef = useRef(false);
+
+  // Load markdown dir from localStorage on mount
+  useEffect(() => {
+    setMarkdownDir(getMarkdownOutputDir());
+  }, []);
 
   // Lazy load preferences on mount (only loads if not already cached)
   useEffect(() => {
@@ -133,6 +145,26 @@ export function PreferenceSettings() {
     }
   };
 
+  const handlePickMarkdownDir = async () => {
+    setIsPickingDir(true);
+    try {
+      const dir = await pickMarkdownOutputDir();
+      if (dir) {
+        setMarkdownOutputDir(dir);
+        setMarkdownDir(dir);
+      }
+    } catch (error) {
+      console.error('Failed to pick markdown directory:', error);
+    } finally {
+      setIsPickingDir(false);
+    }
+  };
+
+  const handleClearMarkdownDir = () => {
+    setMarkdownOutputDir(null);
+    setMarkdownDir(null);
+  };
+
   // Show loading only if we're actually loading and don't have cached data
   if (isLoadingPreferences && !notificationSettings && !storageLocations) {
     return <div className="max-w-2xl mx-auto p-6">Loading Preferences...</div>
@@ -159,6 +191,43 @@ export function PreferenceSettings() {
         </div>
       </div>
 
+      {/* Markdown Notes Export Section */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">Markdown Notes Export</h3>
+        <p className="text-sm text-gray-600 mb-4">
+          Meeting summaries and your personal notes will be saved as <code className="bg-gray-100 px-1 rounded">.md</code> files
+          to this directory whenever you save a meeting.
+        </p>
+        <div className="flex items-center gap-3">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-mono text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 truncate">
+              {markdownDir || 'No directory selected'}
+            </p>
+          </div>
+          <button
+            onClick={handlePickMarkdownDir}
+            disabled={isPickingDir}
+            className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50 whitespace-nowrap"
+          >
+            <FolderOpen className="w-4 h-4" />
+            {isPickingDir ? 'Selecting…' : 'Choose'}
+          </button>
+          {markdownDir && (
+            <button
+              onClick={handleClearMarkdownDir}
+              className="px-3 py-2 text-sm text-red-600 border border-red-200 rounded-md hover:bg-red-50 transition-colors whitespace-nowrap"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {markdownDir && (
+          <p className="mt-3 text-xs text-green-700 bg-green-50 border border-green-200 rounded px-3 py-2">
+            Summaries will be written to <strong>{markdownDir}</strong> on every save.
+          </p>
+        )}
+      </div>
+
       {/* Data Storage Locations Section */}
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Data Storage Locations</h3>
@@ -167,36 +236,6 @@ export function PreferenceSettings() {
         </p>
 
         <div className="space-y-4">
-          {/* Database Location */}
-          {/* <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Database</div>
-            <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
-              {storageLocations?.database || 'Loading...'}
-            </div>
-            <button
-              onClick={() => handleOpenFolder('database')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div> */}
-
-          {/* Models Location */}
-          {/* <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Whisper Models</div>
-            <div className="text-sm text-gray-600 mb-3 break-all font-mono text-xs">
-              {storageLocations?.models || 'Loading...'}
-            </div>
-            <button
-              onClick={() => handleOpenFolder('models')}
-              className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors"
-            >
-              <FolderOpen className="w-4 h-4" />
-              Open Folder
-            </button>
-          </div> */}
-
           {/* Recordings Location */}
           <div className="p-4 border rounded-lg bg-gray-50">
             <div className="font-medium mb-2">Meeting Recordings</div>

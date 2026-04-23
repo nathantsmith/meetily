@@ -1,11 +1,12 @@
 "use client";
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Summary, SummaryResponse } from '@/types';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { getMeetingNotes, saveMeetingNotes } from '@/lib/markdownExport';
 import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
 import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
 import { ModelConfig } from '@/components/ModelSettingsModal';
@@ -57,6 +58,14 @@ export default function PageContent({
   const [customPrompt, setCustomPrompt] = useState<string>('');
   const [isRecording] = useState(false);
   const [summaryResponse] = useState<SummaryResponse | null>(null);
+  const [meetingNotes, setMeetingNotesState] = useState<string>(() =>
+    getMeetingNotes(meeting.id)
+  );
+
+  const handleNotesChange = useCallback((notes: string) => {
+    setMeetingNotesState(notes);
+    saveMeetingNotes(meeting.id, notes);
+  }, [meeting.id]);
 
   // Ref to store the modal open function from SummaryGeneratorButtonGroup
   const openModelSettingsRef = useRef<(() => void) | null>(null);
@@ -206,6 +215,8 @@ export default function PageContent({
           onCopySummary={copyOperations.handleCopySummary}
           onOpenFolder={meetingOperations.handleOpenMeetingFolder}
           aiSummary={meetingData.aiSummary}
+          meetingNotes={meetingNotes}
+          onNotesChange={handleNotesChange}
           summaryStatus={summaryGeneration.summaryStatus}
           transcripts={meetingData.transcripts}
           modelConfig={modelConfig}

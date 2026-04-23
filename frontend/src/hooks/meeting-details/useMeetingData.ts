@@ -4,6 +4,13 @@ import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummary
 import { CurrentMeeting, useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import {
+  getMarkdownOutputDir,
+  getMeetingNotes,
+  getMeetingMarkdownPath,
+  buildMarkdownContent,
+  writeMeetingMarkdown,
+} from '@/lib/markdownExport';
 
 interface UseMeetingDataProps {
   meeting: any;
@@ -106,6 +113,30 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
       });
 
       console.log('✅ Save meeting summary success');
+
+      // Write markdown file if a directory is configured
+      const markdownDir = getMarkdownOutputDir();
+      if (markdownDir) {
+        try {
+          const summaryMarkdown =
+            'markdown' in summary && typeof (summary as any).markdown === 'string'
+              ? (summary as any).markdown
+              : '';
+          const manualNotes = getMeetingNotes(meeting.id);
+          const filePath = getMeetingMarkdownPath(markdownDir, meetingTitle, meeting.created_at);
+          const fileContent = buildMarkdownContent(
+            meetingTitle,
+            meeting.created_at,
+            summaryMarkdown,
+            manualNotes,
+          );
+          await writeMeetingMarkdown(filePath, fileContent);
+          console.log('✅ Markdown file written:', filePath);
+        } catch (err) {
+          console.error('❌ Failed to write markdown file:', err);
+          // Don't fail the whole save for this
+        }
+      }
     } catch (error) {
       console.error('❌ Failed to save meeting summary:', error);
       if (error instanceof Error) {

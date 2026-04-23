@@ -48,6 +48,7 @@ pub mod openai;
 pub mod anthropic;
 pub mod groq;
 pub mod openrouter;
+pub mod markdown_export;
 pub mod parakeet_engine;
 pub mod state;
 pub mod summary;
@@ -716,6 +717,9 @@ pub fn run() {
             audio::import::start_import_audio_command,
             audio::import::cancel_import_command,
             audio::import::is_import_in_progress_command,
+            // Markdown export commands
+            markdown_export::pick_markdown_output_dir,
+            markdown_export::write_meeting_markdown,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

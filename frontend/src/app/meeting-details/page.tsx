@@ -9,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
+import { SESSION_NOTES_KEY, getMeetingNotesKey } from "@/lib/markdownExport";
 
 interface MeetingDetailsResponse {
   id: string;
@@ -170,6 +171,21 @@ function MeetingDetailsContent() {
     setHasCheckedAutoGen(false);
     setShouldAutoGenerate(false);
   }, [meetingId]);
+
+  // When navigated from a recording, move session notes into this meeting's notes slot
+  useEffect(() => {
+    if (source === 'recording' && meetingId && typeof localStorage !== 'undefined') {
+      const sessionNotes = localStorage.getItem(SESSION_NOTES_KEY) || '';
+      if (sessionNotes.trim()) {
+        const existingNotes = localStorage.getItem(getMeetingNotesKey(meetingId)) || '';
+        const merged = existingNotes.trim()
+          ? `${existingNotes}\n\n${sessionNotes}`
+          : sessionNotes;
+        localStorage.setItem(getMeetingNotesKey(meetingId), merged);
+        localStorage.removeItem(SESSION_NOTES_KEY);
+      }
+    }
+  }, [source, meetingId]);
 
   // Cleanup: Stop polling when navigating away from a meeting
   useEffect(() => {

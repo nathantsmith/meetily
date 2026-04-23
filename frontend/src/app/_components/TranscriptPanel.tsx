@@ -9,7 +9,8 @@ import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { usePermissionCheck } from '@/hooks/usePermissionCheck';
 import { ModalType } from '@/hooks/useModalState';
 import { useIsLinux } from '@/hooks/usePlatform';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { SESSION_NOTES_KEY } from '@/lib/markdownExport';
 
 /**
  * TranscriptPanel Component
@@ -48,6 +49,19 @@ export function TranscriptPanel({
     })),
     [transcripts]
   );
+
+  const [sessionNotes, setSessionNotes] = useState(() => {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem(SESSION_NOTES_KEY) || '';
+    }
+    return '';
+  });
+
+  useEffect(() => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(SESSION_NOTES_KEY, sessionNotes);
+    }
+  }, [sessionNotes]);
 
   return (
     <div ref={transcriptContainerRef} className="w-full border-r border-gray-200 bg-white flex flex-col overflow-y-auto">
@@ -102,7 +116,7 @@ export function TranscriptPanel({
       )}
 
       {/* Transcript content */}
-      <div className="pb-20">
+      <div className="pb-4">
         <div className="flex justify-center">
           <div className="w-2/3 max-w-[750px]">
             <VirtualizedTranscriptView
@@ -113,6 +127,21 @@ export function TranscriptPanel({
               isStopping={isStopping}
               enableStreaming={isRecording}
               showConfidence={true}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Notes area */}
+      <div className="flex justify-center pb-24 px-4">
+        <div className="w-2/3 max-w-[750px]">
+          <div className="border-t border-gray-200 pt-4">
+            <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">My Notes</p>
+            <textarea
+              className="w-full min-h-[120px] resize-y text-sm border border-gray-200 rounded-lg p-3 text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-400"
+              placeholder="Jot down notes while recording — they'll be included when generating your summary…"
+              value={sessionNotes}
+              onChange={(e) => setSessionNotes(e.target.value)}
             />
           </div>
         </div>

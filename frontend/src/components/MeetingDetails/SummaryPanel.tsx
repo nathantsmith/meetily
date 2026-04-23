@@ -28,6 +28,8 @@ interface SummaryPanelProps {
   onCopySummary: () => Promise<void>;
   onOpenFolder: () => Promise<void>;
   aiSummary: Summary | null;
+  meetingNotes?: string;
+  onNotesChange?: (notes: string) => void;
   summaryStatus: 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
   transcripts: Transcript[];
   modelConfig: ModelConfig;
@@ -64,6 +66,8 @@ export function SummaryPanel({
   onCopySummary,
   onOpenFolder,
   aiSummary,
+  meetingNotes = '',
+  onNotesChange = () => {},
   summaryStatus,
   transcripts,
   modelConfig,
@@ -197,6 +201,16 @@ export function SummaryPanel({
         </div>
       ) : transcripts?.length > 0 && (
         <div className="flex-1 overflow-y-auto min-h-0">
+          {/* Personal notes section */}
+          <div className="px-6 pt-5 pb-3">
+            <p className="text-xs font-medium text-gray-500 mb-2 uppercase tracking-wide">My Notes</p>
+            <textarea
+              className="w-full min-h-[90px] resize-y text-sm border border-gray-200 rounded-lg p-3 text-gray-700 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder-gray-400"
+              placeholder="Personal notes for this meeting — included when generating your summary…"
+              value={meetingNotes}
+              onChange={(e) => onNotesChange(e.target.value)}
+            />
+          </div>
           {summaryResponse && (
             <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg p-4 max-h-1/3 overflow-y-auto">
               <h3 className="text-lg font-semibold mb-2">Meeting Summary</h3>

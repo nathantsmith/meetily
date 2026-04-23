@@ -561,7 +561,16 @@ export function useSummaryGeneration({
       .map(t => `${formatTime(t.audio_start_time, t.timestamp)} ${t.text}`)
       .join('\n');
 
-    await processSummary({ transcriptText: fullTranscript, customPrompt });
+    const manualNotes =
+      typeof localStorage !== 'undefined'
+        ? (localStorage.getItem(`meetily_notes_${meeting.id}`) || '')
+        : '';
+
+    const transcriptText = manualNotes.trim()
+      ? `${fullTranscript}\n\n--- Personal Notes ---\n${manualNotes.trim()}`
+      : fullTranscript;
+
+    await processSummary({ transcriptText, customPrompt });
   }, [meeting.id, fetchAllTranscripts, processSummary, modelConfig, isModelConfigLoading, selectedTemplate]);
 
   // Public API: Regenerate summary from original transcript
