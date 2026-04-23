@@ -963,6 +963,49 @@ pub async fn api_get_all_tags<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn api_create_project_folder<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    name: String,
+) -> Result<(), String> {
+    if name.trim().is_empty() {
+        return Err("Folder name cannot be empty".to_string());
+    }
+    let pool = state.db_manager.pool();
+    MeetingsRepository::create_project_folder(pool, name.trim())
+        .await
+        .map_err(|e| format!("Failed to create folder: {}", e))
+}
+
+#[tauri::command]
+pub async fn api_rename_project_tag<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    old_tag: String,
+    new_tag: String,
+) -> Result<(), String> {
+    if new_tag.trim().is_empty() {
+        return Err("Folder name cannot be empty".to_string());
+    }
+    let pool = state.db_manager.pool();
+    MeetingsRepository::rename_project_tag(pool, &old_tag, new_tag.trim())
+        .await
+        .map_err(|e| format!("Failed to rename folder: {}", e))
+}
+
+#[tauri::command]
+pub async fn api_delete_project_tag<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    tag: String,
+) -> Result<(), String> {
+    let pool = state.db_manager.pool();
+    MeetingsRepository::delete_project_tag(pool, &tag)
+        .await
+        .map_err(|e| format!("Failed to delete folder: {}", e))
+}
+
+#[tauri::command]
 pub async fn api_save_transcript<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,

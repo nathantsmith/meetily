@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload, FolderPlus, FolderOpen, FolderInput, Check } from 'lucide-react';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
@@ -24,6 +24,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { VisuallyHidden } from "@/components/ui/visually-hidden"
+import { getMarkdownOutputDir, renameProjectTagDir, deleteProjectTagDir } from '@/lib/markdownExport';
 
 import { MessageToast } from '../MessageToast';
 import Logo from '../Logo';
@@ -54,7 +55,9 @@ const Sidebar: React.FC = () => {
     isSearching,
     meetings,
     setMeetings,
-    serverAddress
+    serverAddress,
+    allFolderNames,
+    refetchFolders,
   } = useSidebar();
 
   // Get recording state from RecordingStateContext (single source of truth)
@@ -84,6 +87,14 @@ const Sidebar: React.FC = () => {
     currentTitle: ''
   });
   const [editingTitle, setEditingTitle] = useState<string>('');
+
+  // Folder management state
+  const [createFolderMode, setCreateFolderMode] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [renameFolderState, setRenameFolderState] = useState<{ isOpen: boolean; oldName: string; newName: string }>({ isOpen: false, oldName: '', newName: '' });
+  const [deleteFolderConfirm, setDeleteFolderConfirm] = useState<{ isOpen: boolean; name: string }>({ isOpen: false, name: '' });
+  const [moveMeetingOpenId, setMoveMeetingOpenId] = useState<string | null>(null);
+  const moveMeetingRef = useRef<HTMLDivElement>(null);
 
   // Ensure 'meetings' folder is always expanded
   useEffect(() => {
@@ -432,6 +443,83 @@ const Sidebar: React.FC = () => {
     setExpandedFolders(newExpanded);
   };
 
+  // Close move-to-folder dropdown when clicking outside
+  useEffect(() => {
+    if (!moveMeetingOpenId) return;
+    const handler = (e: MouseEvent) => {
+      if (moveMeetingRef.current && !moveMeetingRef.current.contains(e.target as Node)) {
+        setMoveMeetingOpenId(null);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [moveMeetingOpenId]);
+
+  const handleCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    try {
+      await invoke('api_create_project_folder', { name });
+      await refetchFolders();
+      setNewFolderName('');
+      setCreateFolderMode(false);
+      // Expand newly created folder in the sidebar
+      setExpandedFolders(prev => new Set(prev).add(`project-tag-${name}`));
+      toast.success(`Folder "${name}" created`);
+    } catch (error) {
+      toast.error('Failed to create folder', { description: String(error) });
+    }
+  };
+
+  const handleRenameFolder = async () => {
+    const { oldName, newName } = renameFolderState;
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) {
+      setRenameFolderState({ isOpen: false, oldName: '', newName: '' });
+      return;
+    }
+    try {
+      await invoke('api_rename_project_tag', { oldTag: oldName, newTag: trimmed });
+      const markdownDir = getMarkdownOutputDir();
+      if (markdownDir) {
+        await renameProjectTagDir(markdownDir, oldName, trimmed).catch(console.error);
+      }
+      setMeetings(meetings.map(m => m.project_tag === oldName ? { ...m, project_tag: trimmed } : m));
+      await refetchFolders();
+      setRenameFolderState({ isOpen: false, oldName: '', newName: '' });
+      toast.success(`Folder renamed to "${trimmed}"`);
+    } catch (error) {
+      toast.error('Failed to rename folder', { description: String(error) });
+    }
+  };
+
+  const handleDeleteFolder = async (folderName: string) => {
+    try {
+      await invoke('api_delete_project_tag', { tag: folderName });
+      const markdownDir = getMarkdownOutputDir();
+      if (markdownDir) {
+        await deleteProjectTagDir(markdownDir, folderName).catch(console.error);
+      }
+      setMeetings(meetings.map(m => m.project_tag === folderName ? { ...m, project_tag: undefined } : m));
+      await refetchFolders();
+      setDeleteFolderConfirm({ isOpen: false, name: '' });
+      toast.success(`Folder "${folderName}" deleted`);
+    } catch (error) {
+      toast.error('Failed to delete folder', { description: String(error) });
+    }
+  };
+
+  const handleMoveMeeting = async (meetingId: string, newTag: string | null) => {
+    try {
+      await invoke('api_update_meeting_tag', { meetingId, projectTag: newTag });
+      setMeetings(meetings.map(m => m.id === meetingId ? { ...m, project_tag: newTag ?? undefined } : m));
+      setMoveMeetingOpenId(null);
+      toast.success(newTag ? `Moved to "${newTag}"` : 'Removed from folder');
+    } catch (error) {
+      toast.error('Failed to move meeting', { description: String(error) });
+    }
+  };
+
   // Expose setShowModelSettings to window for Rust tray to call
   useEffect(() => {
     (window as any).openSettings = () => {
@@ -555,13 +643,18 @@ const Sidebar: React.FC = () => {
     const isExpanded = expandedFolders.has(item.id);
     const paddingLeft = `${depth * 12 + 12}px`;
     const isActive = item.type === 'file' && currentMeeting?.id === item.id;
-    const isMeetingItem = item.id.includes('-') && !item.id.startsWith('intro-call');
+    const isMeetingItem = item.id.includes('-') && !item.id.startsWith('intro-call') && !item.id.startsWith('project-tag-');
+    const isProjectFolder = item.type === 'folder' && item.id.startsWith('project-tag-');
 
     // Check if this item has a matching transcript snippet
     const matchingResult = isMeetingItem ? findMatchingSnippet(item.id) : null;
     const hasTranscriptMatch = !!matchingResult;
 
     if (isCollapsed) return null;
+
+    const meetingCurrentTag = isMeetingItem
+      ? (meetings.find(m => m.id === item.id)?.project_tag ?? null)
+      : null;
 
     return (
       <div key={item.id}>
@@ -591,12 +684,37 @@ const Sidebar: React.FC = () => {
               ) : item.id === 'notes' ? (
                 <Calendar className="w-4 h-4 mr-2" />
               ) : null}
-              <span className={depth === 0 ? "" : "font-medium"}>{item.title}</span>
-              <div className="ml-auto">
+              <span className={depth === 0 ? "" : "font-medium text-gray-700"}>{item.title}</span>
+              <div className="ml-auto flex items-center gap-0.5">
                 {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
                 ) : (
-                  <ChevronRight className="w-4 h-4 text-gray-500" />
+                  <ChevronRight className="w-4 h-4 text-gray-400" />
+                )}
+                {/* Folder actions - only on project-tag folders */}
+                {isProjectFolder && (
+                  <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ml-1">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenameFolderState({ isOpen: true, oldName: item.title, newName: item.title });
+                      }}
+                      className="hover:text-blue-600 p-0.5 rounded hover:bg-blue-50"
+                      aria-label="Rename folder"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteFolderConfirm({ isOpen: true, name: item.title });
+                      }}
+                      className="hover:text-red-600 p-0.5 rounded hover:bg-red-50"
+                      aria-label="Delete folder"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
                 )}
               </div>
               {searchQuery && item.id === 'meetings' && isSearching && (
@@ -621,6 +739,16 @@ const Sidebar: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
+                        setMoveMeetingOpenId(moveMeetingOpenId === item.id ? null : item.id);
+                      }}
+                      className="hover:text-purple-600 p-1 rounded-md hover:bg-purple-50 flex-shrink-0"
+                      aria-label="Move to folder"
+                    >
+                      <FolderInput className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
                         handleEditStart(item.id, item.title);
                       }}
                       className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
@@ -641,6 +769,39 @@ const Sidebar: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Move-to-folder dropdown */}
+              {moveMeetingOpenId === item.id && (
+                <div
+                  ref={moveMeetingRef}
+                  className="relative z-50 mt-1 ml-8 bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[140px]"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {allFolderNames.length === 0 && (
+                    <p className="text-xs text-gray-400 px-3 py-2 text-center">No folders yet</p>
+                  )}
+                  {allFolderNames.map(folder => (
+                    <button
+                      key={folder}
+                      onClick={() => handleMoveMeeting(item.id, folder)}
+                      className="w-full text-left text-xs px-3 py-1.5 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <FolderOpen className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                      <span className="flex-1 truncate">{folder}</span>
+                      {meetingCurrentTag === folder && <Check className="w-3 h-3 text-blue-500 flex-shrink-0" />}
+                    </button>
+                  ))}
+                  {meetingCurrentTag && (
+                    <button
+                      onClick={() => handleMoveMeeting(item.id, null)}
+                      className="w-full text-left text-xs px-3 py-1.5 hover:bg-red-50 text-red-500 flex items-center gap-2 border-t border-gray-100 mt-1"
+                    >
+                      <X className="w-3 h-3 flex-shrink-0" />
+                      Remove from folder
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Show transcript match snippet if available */}
               {hasTranscriptMatch && (
@@ -741,15 +902,47 @@ const Sidebar: React.FC = () => {
               <div className="flex-shrink-0">
                 {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
                   <div key={item.id}>
-                    <div
-                      className="flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg"
-                    >
-                      <NotebookPen className="w-4 h-4 mr-2 text-gray-600" />
-                      <span className="text-gray-700">{item.title}</span>
+                    <div className="flex items-center transition-all duration-150 px-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg group">
+                      <NotebookPen className="w-4 h-4 mr-2 text-gray-600 flex-shrink-0" />
+                      <span className="text-gray-700 flex-1">{item.title}</span>
                       {searchQuery && item.id === 'meetings' && isSearching && (
                         <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
                       )}
+                      {/* New folder button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCreateFolderMode(true);
+                          setNewFolderName('');
+                        }}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-100 ml-1"
+                        aria-label="New folder"
+                        title="New folder"
+                      >
+                        <FolderPlus className="w-4 h-4 text-gray-500" />
+                      </button>
                     </div>
+                    {/* Inline folder creation input */}
+                    {createFolderMode && (
+                      <div className="mx-3 px-3 py-1.5">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={newFolderName}
+                          onChange={(e) => setNewFolderName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleCreateFolder();
+                            if (e.key === 'Escape') { setCreateFolderMode(false); setNewFolderName(''); }
+                          }}
+                          onBlur={() => {
+                            if (!newFolderName.trim()) { setCreateFolderMode(false); setNewFolderName(''); }
+                          }}
+                          placeholder="Folder name…"
+                          className="w-full text-sm border border-blue-400 rounded-md px-2 py-1 outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        <p className="text-xs text-gray-400 mt-1">Enter to save · Esc to cancel</p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -823,6 +1016,50 @@ const Sidebar: React.FC = () => {
         text="Are you sure you want to delete this meeting? This action cannot be undone."
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteModalState({ isOpen: false, itemId: null })}
+      />
+
+      {/* Rename Folder Modal */}
+      <Dialog open={renameFolderState.isOpen} onOpenChange={(open) => {
+        if (!open) setRenameFolderState({ isOpen: false, oldName: '', newName: '' });
+      }}>
+        <DialogContent className="sm:max-w-[425px]">
+          <VisuallyHidden>
+            <DialogTitle>Rename Folder</DialogTitle>
+          </VisuallyHidden>
+          <div className="py-4">
+            <h3 className="text-lg font-semibold mb-4">Rename Folder</h3>
+            <input
+              type="text"
+              value={renameFolderState.newName}
+              onChange={(e) => setRenameFolderState(s => ({ ...s, newName: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleRenameFolder();
+                if (e.key === 'Escape') setRenameFolderState({ isOpen: false, oldName: '', newName: '' });
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Folder name"
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <button
+              onClick={() => setRenameFolderState({ isOpen: false, oldName: '', newName: '' })}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+            >Cancel</button>
+            <button
+              onClick={handleRenameFolder}
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
+            >Rename</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Folder Confirmation */}
+      <ConfirmationModal
+        isOpen={deleteFolderConfirm.isOpen}
+        text={`Delete folder "${deleteFolderConfirm.name}"? Meetings inside will be moved to the unorganized list.`}
+        onConfirm={() => handleDeleteFolder(deleteFolderConfirm.name)}
+        onCancel={() => setDeleteFolderConfirm({ isOpen: false, name: '' })}
       />
 
       {/* Edit Meeting Title Modal */}

@@ -52,7 +52,9 @@ interface SidebarContextType {
   stopSummaryPolling: (meetingId: string) => void;
   // Refetch meetings from backend
   refetchMeetings: () => Promise<void>;
-
+  // Project folder management
+  allFolderNames: string[];
+  refetchFolders: () => Promise<void>;
 }
 
 const SidebarContext = createContext<SidebarContextType | null>(null);
@@ -76,12 +78,22 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [serverAddress, setServerAddress] = useState('');
   const [transcriptServerAddress, setTranscriptServerAddress] = useState('');
   const [activeSummaryPolls, setActiveSummaryPolls] = useState<Map<string, NodeJS.Timeout>>(new Map());
+  const [allFolderNames, setAllFolderNames] = useState<string[]>([]);
 
   // Use recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
 
   const pathname = usePathname();
   const router = useRouter();
+
+  const fetchFolders = React.useCallback(async () => {
+    try {
+      const tags = await invoke('api_get_all_tags') as string[];
+      setAllFolderNames(tags);
+    } catch (e) {
+      console.error('Error fetching folder names:', e);
+    }
+  }, []);
 
   // Extract fetchMeetings as a reusable function
   const fetchMeetings = React.useCallback(async () => {
@@ -95,13 +107,15 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         }));
         setMeetings(transformedMeetings);
         Analytics.trackBackendConnection(true);
+        // Also refresh folder names so explicit project_folders are included
+        await fetchFolders();
       } catch (error) {
         console.error('Error fetching meetings:', error);
         setMeetings([]);
         Analytics.trackBackendConnection(false, error instanceof Error ? error.message : 'Unknown error');
       }
     }
-  }, [serverAddress]);
+  }, [serverAddress, fetchFolders]);
 
   useEffect(() => {
     fetchMeetings();
@@ -115,22 +129,19 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     fetchSettings();
   }, []);
 
-  // Group meetings: untagged first (direct children), then tagged in sub-folders
+  // Group meetings: untagged first, then tagged into project folders
+  // Include all known folder names (both from explicit project_folders table and meeting tags)
   const untaggedMeetings = meetings.filter(m => !m.project_tag);
-  const taggedGroups = new Map<string, CurrentMeeting[]>();
-  meetings.filter(m => m.project_tag).forEach(m => {
-    const tag = m.project_tag!;
-    if (!taggedGroups.has(tag)) taggedGroups.set(tag, []);
-    taggedGroups.get(tag)!.push(m);
-  });
-  const tagFolders: SidebarItem[] = Array.from(taggedGroups.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([tag, tagMeetings]) => ({
-      id: `project-tag-${tag}`,
-      title: tag,
-      type: 'folder' as const,
-      children: tagMeetings.map(m => ({ id: m.id, title: m.title, type: 'file' as const })),
-    }));
+  const usedTags = new Set(meetings.filter(m => m.project_tag).map(m => m.project_tag!));
+  const allKnownTags = Array.from(new Set([...allFolderNames, ...usedTags])).sort((a, b) => a.localeCompare(b));
+  const tagFolders: SidebarItem[] = allKnownTags.map(tag => ({
+    id: `project-tag-${tag}`,
+    title: tag,
+    type: 'folder' as const,
+    children: meetings
+      .filter(m => m.project_tag === tag)
+      .map(m => ({ id: m.id, title: m.title, type: 'file' as const })),
+  }));
 
   const baseItems: SidebarItem[] = [
     {
@@ -332,7 +343,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
       startSummaryPolling,
       stopSummaryPolling,
       refetchMeetings: fetchMeetings,
-
+      allFolderNames,
+      refetchFolders: fetchFolders,
     }}>
       {children}
     </SidebarContext.Provider>

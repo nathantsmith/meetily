@@ -143,6 +143,14 @@ impl MeetingsRepository {
             ));
         }
 
+        // Ensure the tag is tracked as a named folder
+        if let Some(tag) = project_tag {
+            sqlx::query("INSERT OR IGNORE INTO project_folders (name) VALUES (?)")
+                .bind(tag)
+                .execute(pool)
+                .await?;
+        }
+
         let now = Utc::now().naive_utc();
         let rows = sqlx::query(
             "UPDATE meetings SET project_tag = ?, updated_at = ? WHERE id = ?"
@@ -157,13 +165,62 @@ impl MeetingsRepository {
     }
 
     pub async fn get_all_tags(pool: &SqlitePool) -> Result<Vec<String>, SqlxError> {
+        // Union explicit project_folders with tags in use on meetings
         let rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT DISTINCT project_tag FROM meetings WHERE project_tag IS NOT NULL AND project_tag != '' ORDER BY project_tag ASC"
+            "SELECT name FROM project_folders \
+             UNION \
+             SELECT DISTINCT project_tag FROM meetings WHERE project_tag IS NOT NULL AND project_tag != '' \
+             ORDER BY name ASC"
         )
         .fetch_all(pool)
         .await?;
 
         Ok(rows.into_iter().map(|(tag,)| tag).collect())
+    }
+
+    pub async fn create_project_folder(pool: &SqlitePool, name: &str) -> Result<(), SqlxError> {
+        sqlx::query("INSERT OR IGNORE INTO project_folders (name) VALUES (?)")
+            .bind(name)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn rename_project_tag(
+        pool: &SqlitePool,
+        old_tag: &str,
+        new_tag: &str,
+    ) -> Result<(), SqlxError> {
+        let mut tx = pool.begin().await?;
+        sqlx::query("INSERT OR IGNORE INTO project_folders (name) VALUES (?)")
+            .bind(new_tag)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE meetings SET project_tag = ? WHERE project_tag = ?")
+            .bind(new_tag)
+            .bind(old_tag)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM project_folders WHERE name = ?")
+            .bind(old_tag)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    pub async fn delete_project_tag(pool: &SqlitePool, tag: &str) -> Result<(), SqlxError> {
+        let mut tx = pool.begin().await?;
+        sqlx::query("DELETE FROM project_folders WHERE name = ?")
+            .bind(tag)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE meetings SET project_tag = NULL WHERE project_tag = ?")
+            .bind(tag)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(())
     }
 
     /// Get meeting transcripts with pagination support

@@ -60,6 +60,14 @@ export async function moveMeetingMarkdown(oldPath: string, newPath: string): Pro
   return invoke('move_meeting_markdown', { oldPath, newPath });
 }
 
+export async function renameProjectTagDir(dir: string, oldTag: string, newTag: string): Promise<void> {
+  return invoke('rename_project_tag_dir', { dir, oldTag, newTag });
+}
+
+export async function deleteProjectTagDir(dir: string, tag: string): Promise<void> {
+  return invoke('delete_project_tag_dir', { dir, tag });
+}
+
 export function buildMarkdownContent(
   title: string,
   createdAt: string,
